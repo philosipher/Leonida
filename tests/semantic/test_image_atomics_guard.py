@@ -75,16 +75,24 @@ def parse_blocks(spv):
 
 def find_guarded_texel_block(spv):
     """Verify every OpImageTexelPointer sits inside a basic block entered via an OpSelectionMerge
-    conditional branch whose condition is an OpLoad %bool %active, and return that block's instructions."""
+    conditional branch on the current EXEC value, and return that block's instructions."""
     blocks = parse_blocks(spv)
-    active_loads = set(re.findall(r"^\s*(%\w+) = OpLoad %bool %active\b", spv, re.M))
+    # A shader that never writes EXEC leaves every lane active, and the translator folds `if (%active)` to
+    # `if (%true)` there (#4473), which guards nothing because nothing can be inactive. Accept that constant, and
+    # only that constant: a shader with an OpStore to %active still needs the real load to protect the access.
+    exec_is_constant_true = not re.search(r"^\s*OpStore %active\b", spv, re.M)
     guarded_targets = set()
     for insns in blocks.values():
+        # The emitter caches the value of %active until a label, so a guard may use the most recent store directly.
+        active = "%true" if exec_is_constant_true else None
         for i, ln in enumerate(insns):
+            update = re.fullmatch(r"(%\w+) = OpLoad %bool %active|OpStore %active (%\w+)", ln)
+            if update:
+                active = update.group(1) or update.group(2)
             if ln.startswith("OpSelectionMerge ") and i + 1 < len(insns):
                 br = insns[i + 1]
                 m = re.match(r"OpBranchConditional (%\w+) (%\w+) (%\w+)", br)
-                if m and m.group(1) in active_loads:
+                if m and m.group(1) == active:
                     guarded_targets.add(m.group(2))
     found = []
     for lbl, insns in blocks.items():
@@ -107,6 +115,22 @@ def vgpr_ptrs(spv, reg_idx):
 
 
 class ImageAtomicsGuardTests(unittest.TestCase):
+    def test_exec_write_requires_a_runtime_guard(self):
+        spv = translate([
+            "v_mov_b32_e32 v1, 0",
+            "v_mov_b32_e32 v2, 0",
+            "v_mov_b32_e32 v4, 7",
+            "v_cmpx_gt_u32_e32 1, v0",
+            "image_atomic_add v4, v[1:2], s[4:11] dmask:0x1 dim:SQ_RSRC_IMG_2D unorm glc",
+        ])
+        validate_spirv(spv)
+        [(label, _)] = find_guarded_texel_block(spv)
+        forced_true, replaced = re.subn(rf"(OpBranchConditional) %\w+ ({re.escape(label)}\s)",
+                                        r"\1 %true \2", spv)
+        self.assertEqual(replaced, 1)
+        with self.assertRaisesRegex(AssertionError, "unguarded block"):
+            find_guarded_texel_block(forced_true)
+
     def test_all_image_atomics_2d_and_3d_guarded_and_valid(self):
         simple_ops = [
             ("image_atomic_add", "OpAtomicIAdd"),

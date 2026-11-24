@@ -38,15 +38,17 @@ class ManifestEnumerationTest(unittest.TestCase):
             with open(names, "w", encoding="utf-8", newline="\n") as f:
                 f.write("synthetic_model\n")
 
+            walk_error = PermissionError(13, "Permission denied", blocked)
+
             def walk(root, onerror=None):
                 if onerror:
-                    onerror(PermissionError(13, "Permission denied", blocked))
+                    onerror(walk_error)
                 return iter(())
 
             with mock.patch.object(WN.os, "walk", walk), contextlib.redirect_stderr(io.StringIO()) as err, \
                     contextlib.redirect_stdout(io.StringIO()):
                 self.assertEqual(WN.main(["build", "--manifest", manifests, "--names", names, "--out", output]), 1)
-            self.assertIn(blocked, err.getvalue())
+            self.assertIn(str(walk_error), err.getvalue())
             with open(output, "rb") as f:
                 self.assertEqual(f.read(), b"existing dictionary")
 

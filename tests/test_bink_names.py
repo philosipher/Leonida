@@ -329,15 +329,17 @@ class TestCli(unittest.TestCase):
             with open(report, "wb") as f:
                 f.write(b"previous report")
 
+            walk_error = PermissionError(13, "permission denied", blocked)
+
             def walk(path, onerror=None):
                 if onerror:
-                    onerror(PermissionError(13, "permission denied", blocked))
+                    onerror(walk_error)
                 return iter(())
 
             with mock.patch.object(names_mod.os, "walk", walk), \
                     contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()) as err:
                 self.assertEqual(names_mod.main([source, "--mount", mount, "--out", report]), 1)
-            self.assertIn(blocked, err.getvalue())
+            self.assertIn(str(walk_error), err.getvalue())
             with open(report, "rb") as f:
                 self.assertEqual(f.read(), b"previous report")
 

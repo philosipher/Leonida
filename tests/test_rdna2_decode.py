@@ -207,6 +207,40 @@ class Rdna2DecodeUnitTests(unittest.TestCase):
         self.assertEqual(reparsed["op"], ins["op"])
         self.assertEqual(reparsed["mods"], ins["mods"])
 
+    def test_permlane16_opsel_is_the_fi_bound_ctrl_pair(self):
+        # v_permlane16_b32 v2, v0, s0, s1 is 0xD7770002 0x00040100, v_permlanex16_b32 0xD7780002; op_sel is w0 bits
+        # 11..14. llvm-mc 21.1.8 prints bits 0 and 1 as op_sel:[FI,BOUND_CTRL] and ignores bits 2 and 3, where the
+        # other VOP3 ops print [s0,s1,s2,dst]. Hand-assembled words, checked against llvm-mc -disassemble.
+        expect = {0x0: [], 0x1: ["op_sel:[1,0]"], 0x2: ["op_sel:[0,1]"], 0x3: ["op_sel:[1,1]"],
+                  0x4: [], 0x8: [], 0xC: [], 0x5: ["op_sel:[1,0]"], 0xE: ["op_sel:[0,1]"], 0xF: ["op_sel:[1,1]"]}
+        for w0, op in ((0xD7770002, "v_permlane16_b32"), (0xD7780002, "v_permlanex16_b32")):
+            for op_sel, mods in expect.items():
+                with self.subTest(op=op, op_sel=op_sel):
+                    info = rdna2_decode.decode_bytes(words(w0 | (op_sel << 11), 0x00040100))
+                    self.assertEqual(info["invalid"], 0)
+                    ins = info["insns"][0]
+                    self.assertEqual(ins["op"], op)
+                    self.assertEqual(ins["mods"], mods)
+                    reparsed = shader_ir.parse_line(rdna2_decode.format_insn(ins))
+                    self.assertEqual(reparsed["mods"], mods)
+
+    def test_exp_null_target_matches_the_parsed_line(self):
+        # exp null off, off, off, off done vm = 0xF8001890 0x00000000 (llvm-mc 21.1.8, gfx1013); mrt0 for contrast.
+        # shader_ir.parse_line gives the `null` target as the special register and every other target as a
+        # target, and decode_bytes has to hand out the same dictionaries as the line it prints, parsed back.
+        for w0, w1, kind, name in ((0xF8001890, 0x00000000, "special", "null"),
+                                   (0xF800180F, 0x09080706, "target", "mrt0")):
+            with self.subTest(target=name):
+                info = rdna2_decode.decode_bytes(words(w0, w1))
+                self.assertEqual(info["invalid"], 0)
+                ins = info["insns"][0]
+                self.assertEqual(ins["op"], "exp")
+                self.assertEqual((ins["args"][0]["k"], ins["args"][0]["t"]), (kind, name))
+                reparsed = shader_ir.parse_line(rdna2_decode.format_insn(ins))
+                self.assertEqual([(a["k"], a.get("t")) for a in reparsed["args"]],
+                                 [(a["k"], a.get("t")) for a in ins["args"]])
+                self.assertEqual(reparsed["mods"], ins["mods"])
+
     def test_smem_vcc_tuple_and_offsets(self):
         # s_buffer_load_dwordx8 [s100..s105,vcc_lo,vcc_hi], s[0:3], null (SMEM op=0x0b, sdata=100, sbase=0, soff=125)
         w0 = (0x3D << 26) | (0x0B << 18) | (100 << 6) | 0

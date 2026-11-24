@@ -589,6 +589,12 @@ MIP_TEST_MODES = {SIGNED_MIP_TEST: "--two-mip-sint", UINT_MIP_TEST: "--two-mip-u
 STORE_IMAGES = ("uint", "sint", "volume")
 STORE_FILL = (lambda i: 100 + i, lambda i: -2 * i & 0xFFFFFFFF, lambda i: 200 + i)
 STORE_WORDS = {
+    # Only even lanes update the two uint rows. The sint rows capture GLC write-back and non-GLC preservation.
+    "cs_image_atomic_exec": (
+        {i: 100 + i + (7 if i < 8 else 11) for i in range(0, 16, 2)},
+        dict(enumerate([100, 7, 102, 7, 104, 7, 106, 7] + [11] * 8)),
+        {},
+    ),
     # 2D image atomics: the texel afterwards (uint image) and the data register afterwards (sint image) of cases
     # 0..15, then the texel 64 threads each added 1 to
     "cs_imgatomic": (dict(enumerate([0x54, 0xFFFFFF9D, 0x06, 0xF067, 0x97, 0xFFFFFFF0, 0x6A, 0x6B,

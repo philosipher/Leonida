@@ -327,14 +327,16 @@ class TestFolder(unittest.TestCase):
             with open(names, "w", encoding="utf-8", newline="\n") as f:
                 f.write("source,bank,stream_id,name\n")
 
+            walk_error = PermissionError(13, "Permission denied", blocked)
+
             def walk(path, onerror=None):
                 if onerror:
-                    onerror(PermissionError(13, "Permission denied", blocked))
+                    onerror(walk_error)
                 return iter(())
 
             with mock.patch.object(T.os, "walk", walk), contextlib.redirect_stderr(io.StringIO()) as err:
                 self.assertEqual(T.main([root, "--names", names, "--dry-run"]), 2)
-            self.assertIn(blocked, err.getvalue())
+            self.assertIn(str(walk_error), err.getvalue())
 
     def test_cli(self):
         r = subprocess.run([sys.executable, "-I", TOOL, self.opus, "--names", self.names, "--source", "story",

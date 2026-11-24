@@ -1585,7 +1585,15 @@ class Gen:
         return r
 
     def set_exec(self, mask_u):
-        self.emit(f"OpStore %active {self.tmp_bool_nz(mask_u)}")
+        """EXEC = this lane's bit of the computed 32-bit word: lane L takes bit L mod 32 (SHADER-1264). A value
+        already in mask representation (all-ones / zero per lane) gives back the same bit, so mask writes keep
+        working. Testing the word for non-zero instead turned every lane of the half on for a computed value."""
+        lane = self.wave_lane()
+        rel, shr, bit = self.tmp(), self.tmp(), self.tmp()
+        self.emit(f"{rel} = OpBitwiseAnd %uint {lane} {self.cu(31)}")
+        self.emit(f"{shr} = OpShiftRightLogical %uint {mask_u} {rel}")
+        self.emit(f"{bit} = OpBitwiseAnd %uint {shr} {self.cu(1)}")
+        self.emit(f"OpStore %active {self.tmp_bool_nz(bit)}")
         self.uses_active = True
 
     def vcc_half_keeps_mask(self):
@@ -5873,8 +5881,9 @@ class Gen:
 
     def exec_half_write(self, half, val, const=None):
         """Write one 32-bit half of EXEC. In the per-lane model a lane is active iff its bit is set. A constant
-        sets each lane from its own bit; a register value (mask representation: all-ones / zero per lane) sets
-        the lanes of that half from their own copy. Lanes of the other half are unchanged."""
+        sets each lane from its own bit; a register value sets the lanes of that half from their own bit too
+        (SHADER-1264: a computed word used to set every lane of the half when it was non-zero). A value already
+        in mask representation (all-ones / zero per lane) gives back the same bit. The other half is unchanged."""
         lane = self.wave_lane()
         rel, inh, bit, on, cur, new = (self.tmp() for _ in range(6))
         if half == 0:
@@ -5894,7 +5903,11 @@ class Gen:
             self.emit(f"{bit} = OpBitwiseAnd %uint {shr} {self.cu(1)}")
             self.emit(f"{on} = OpINotEqual %bool {bit} {self.cu(0)}")
         else:
-            self.emit(f"{on} = OpINotEqual %bool {val} {self.cu(0)}")
+            r31, shr = self.tmp(), self.tmp()
+            self.emit(f"{r31} = OpBitwiseAnd %uint {rel} {self.cu(31)}")
+            self.emit(f"{shr} = OpShiftRightLogical %uint {val} {r31}")
+            self.emit(f"{bit} = OpBitwiseAnd %uint {shr} {self.cu(1)}")
+            self.emit(f"{on} = OpINotEqual %bool {bit} {self.cu(0)}")
         self.emit(f"{cur} = OpLoad %bool %active")
         self.emit(f"{new} = OpSelect %bool {inh} {on} {cur}")
         self.emit(f"OpStore %active {new}")
