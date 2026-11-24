@@ -12,6 +12,7 @@ method, scope and caveats. No game data is included.
 | [related_projects.md](related_projects.md) | Prior art we may read and the licence boundaries on it. |
 | [rpf.md](rpf.md) | RPF9 archive layout, the carve tools and the unreadable encrypted TOC. |
 | [testing.md](testing.md) | Running the GPU tests on your own GPU: setup per OS, wave64 emulation, running without a GPU on Mesa llvmpipe, and known problems. |
+| [local_validation.md](local_validation.md) | A dated source-only CI snapshot: exact main commit, checks verified on this host, known viewer/semantic failures and missing local toolchains. |
 | [modding.md](modding.md) | The mod format: `mods/<folder>/mod.json`, checked and loaded in name order by `gta6rt`; a swap takes effect once the game's archetype lookup is hooked (needs the executable, RT-5). A mod names game models and holds no game data. |
 | [progress_dashboard.md](progress_dashboard.md) | A local page of what works, what changed since it last passed and what blocks next: unit and runtime tests, the translator contract by confirmation method, measured imports, corpus counts and, with `--github`, CI and the D3D- items (`tools/progress_dashboard.py`). |
 
